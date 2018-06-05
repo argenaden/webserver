@@ -157,10 +157,12 @@ void respond(int sock) {
 
         if(!(str_ending(path, ".jpg")))
         {
-        
+            //long sz = get_file_size(ROOT + path.c_str());
             response = "HTTP/1.1 200 OK\r\n"
                        "Content-Type: text/html; charset=UTF-8\r\n"
                        "Content-Encoding: UTF-8\r\n";
+            
+            //std::string p =ROOT+path.c_str();     
 
             in.open(p);
 
