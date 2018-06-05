@@ -17,6 +17,7 @@ void respond(int sock);
 
 std::string ROOT;
 
+
 int main(int argc, char *argv[]) {
     int sockfd, portno = PORT;
     socklen_t clilen;
@@ -80,33 +81,47 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void send_file(const char *response, int sock, int len) {
-    send(sock, response, len, 0);
+void *make_long(void *b, char c, int len)
+{
+    char *b_char = (char *)b;
+
+    if (b == NULL) return NULL;
+
+    while(*b_char && len > 0)
+    {
+        *b_char = c;
+        b_char++;
+        len--;
+    }
+
+    return b; 
 }
 
-void send_headers(const char *response, int sock) {
-    // std::cout << response << std::endl;
-    send(sock, response, strlen(response), 0);
-    send(sock, "\n", 1, 0);
-}
-
-void send_bad_request(int sock) {
-    std::string response = "HTTP/1.1 400 Bad Request\n";
-    send_headers(response.c_str(), sock);
-    shutdown(sock, SHUT_RDWR);
-    close(sock);
-}
 
 long get_file_size(std::string filename) {
     struct stat stat_buf;
     int rc = stat(filename.c_str(), &stat_buf);
-    return rc == 0 ? stat_buf.st_size : -1;
+    if(rc == 0) {
+        return stat_buf.st_size; }
+    else 
+        return -1;
 }
 
-bool has_suffix(const std::string &str, const std::string &suffix) {
-    return str.size() >= suffix.size() &&
-           str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+bool str_ending(const std::string &a, const std::string &b) {
+    auto len = b.length();
+    auto pos = a.length() - len;
+    if (pos < 0)
+        return false;
+    auto pos_a = &a[pos];
+    auto pos_b = &b[0];
+    while (*pos_a)
+        if (*pos_a++ != *pos_b++)
+            return false;
+    return true;
 }
+
+
+
 
 void respond(int sock) {
     int n;
@@ -115,10 +130,7 @@ void respond(int sock) {
     char send_buff[8192];
     std::ifstream in;
     std::string response;
-    const char *delim = "\r\n\r\n";
-
-    // std::cout << sock << "Thread ID: " << pthread_self() << std::endl;
-
+    
     bzero(buffer, 9999);
     n = recv(sock, buffer, 9999, 0);
     if (n < 0) {
@@ -128,52 +140,80 @@ void respond(int sock) {
         printf("Client disconnected unexpectedly\n");
         return;
     } else {
-        char *token = strtok(buffer, delim);
+        char *token = strtok(buffer, "\r\n\r\n");
+        char cpy[256];
+        strcpy(cpy, token);
 
-        // std::cout << token << std::endl;
+        std::string path = strtok(cpy, " \t");
 
-        if (strncmp("GET", token, 3) != 0) {
-            std::cout << "Only GET method works" << std::endl;
-            send_bad_request(sock);
-            return;
-        }
-
-        char token_cpy[256];
-        strcpy(token_cpy, token);
-        std::string path = strtok(token_cpy, " \t");
         path = strtok(NULL, " \t");
 
         if (strncmp("/", path.c_str(), path.length()) == 0) {
             path = "/index.html";
         }
 
-        if (has_suffix(path, ".jpeg") || has_suffix(path, ".jpg")) {
-            response = "HTTP/1.1 200 OK\r\n"
-                       "Content-Type: image/jpeg\r\n"
-                       "Connection: keep-alive\r\n";
-            in.open(ROOT + path.c_str(), std::ios::binary);
-            in.seekg(0, std::ios::beg);
-            // std::cout << "IMG SIZE: " << std::to_string(get_file_size(ROOT + path.c_str())) << std::endl;
-            response += "Content-Length: " + std::to_string(get_file_size(ROOT + path.c_str())) + "\r\n";
-            send_headers(response.c_str(), sock);
-            while (!in.eof() && in.is_open()) {
-                memset(send_buff, 0, sizeof(send_buff));
-                in.read(send_buff, sizeof(send_buff));
-                send_file(send_buff, sock, sizeof(send_buff));
-            }
-        } else {
+    long sz = get_file_size(ROOT + path.c_str());
+    std::string p = ROOT+path.c_str();
+
+        if(!(str_ending(path, ".jpg")))
+        {
+        
             response = "HTTP/1.1 200 OK\r\n"
                        "Content-Type: text/html; charset=UTF-8\r\n"
                        "Content-Encoding: UTF-8\r\n";
-            in.open(ROOT + path.c_str());
-            std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            response += "Content-Length: " + std::to_string(get_file_size(ROOT + path.c_str())) + "\r\n";
-            send_headers(response.c_str(), sock);
-            // std::cout << ROOT + path.c_str() << std::endl << response << std::endl;
-            send_file(contents.c_str(), sock, strlen(contents.c_str()));
-        }
 
-        // std::cout << std::endl;
+            in.open(p);
+
+            std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            response += std::to_string(sz) + "\r\n";
+            send(sock, response.c_str(), strlen(response.c_str()), 0);
+            send(sock, "\n", 1, 0);
+            send(sock, contents.c_str(), strlen(contents.c_str()), 0);
+
+        }
+        int ss = sizeof(send_buff);
+        if (str_ending(path, ".jpg")) {
+
+                    
+            if(!in.eof()){
+                if(in.is_open()){
+                    make_long(send_buff, 0, ss);
+                in.read(send_buff, ss);
+                send(sock, send_buff, ss, 0);
+                }
+            }
+            response = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: image/jpeg\r\n";
+
+            in.open(p, std::ios::binary);
+            
+            
+            if(in.is_open()){
+
+                response += std::to_string(sz) + "\r\n";
+                int len = strlen(response.c_str());
+                send(sock, response.c_str(), len, 0);
+                send(sock, "\n", 1, 0);
+            }
+
+            while (!in.eof() )
+            {if(in.is_open()) {
+
+                make_long(send_buff, 0, ss);
+                in.read(send_buff, ss);
+                send(sock, send_buff, ss, 0);
+
+            }
+            else{
+
+                send(sock, send_buff, ss, 0);
+            }
+        }
+        } 
+
+        
+
+        
     }
 
     shutdown(sock, SHUT_RDWR);
